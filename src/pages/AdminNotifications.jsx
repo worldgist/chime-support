@@ -8,6 +8,20 @@ import { useUsers } from '../context/UserContext'
 import { useNotifications } from '../context/NotificationContext'
 import { MailIcon, SendIcon } from '../components/icons'
 import { IconSearch } from '../components/adminIcons'
+import { applyEmailMerge, defaultMergeValues, isFullEmailDocument } from '../utils/emailMerge'
+
+const MERGE_FIELD_META = [
+  { key: 'amount', label: 'Amount' },
+  { key: 'account_name', label: 'Account name' },
+  { key: 'merchant_name', label: 'Merchant' },
+  { key: 'balance', label: 'Updated balance' },
+  { key: 'memo', label: 'Description' },
+  { key: 'payee_name', label: 'Payee' },
+]
+
+function usedMergeFields(text) {
+  return MERGE_FIELD_META.filter((field) => String(text || '').includes(`{{${field.key}}}`))
+}
 
 const AVATAR_COLORS = ['#16a34a', '#0f766e', '#2563eb', '#7c3aed', '#db2777', '#d97706']
 
@@ -121,12 +135,14 @@ export default function AdminNotifications() {
   const { conversations } = useChat()
   const { cases } = useKyc()
   const { users: directory } = useUsers()
-  const { emails, sendToUsers, retryDelivery, loading, error: loadError } = useNotifications()
+  const { emails, templates, sendToUsers, retryDelivery, loading, error: loadError, usingSupabase } = useNotifications()
   const [params] = useSearchParams()
   const presetEmail = String(params.get('email') || '').trim().toLowerCase()
 
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [templateId, setTemplateId] = useState('')
+  const [mergeFields, setMergeFields] = useState(() => defaultMergeValues())
   const [audience, setAudience] = useState(presetEmail ? 'specific' : 'all')
   const [selected, setSelected] = useState([])
   const [query, setQuery] = useState('')
@@ -203,12 +219,33 @@ export default function AdminNotifications() {
     return users
   }
 
+  const previewRecipient = useMemo(() => {
+    const list = audience === 'admins' ? admins : audience === 'specific' ? selected : users
+    return list[0] || { name: admin?.name || 'there', email: admin?.email || '' }
+  }, [audience, admins, selected, users, admin])
+
+  const previewSubject = applyEmailMerge(subject, { ...mergeFields, name: previewRecipient.name })
+  const previewBody = applyEmailMerge(body, { ...mergeFields, name: previewRecipient.name })
+  const activeMergeFields = usedMergeFields(`${subject}\n${body}`)
+  const fullDocumentPreview = isFullEmailDocument(body)
+
+  function applyTemplate(id) {
+    setTemplateId(id)
+    if (!id) return
+    const template = templates.find((item) => item.id === id)
+    if (!template) return
+    setSubject(template.subject || '')
+    setBody(template.body || '')
+    setMergeFields(defaultMergeValues(template.defaults || {}))
+  }
+
   async function deliver(list, { toAll, nextSubject = subject, nextBody = body } = {}) {
     return sendToUsers({
       recipients: list,
       toAll,
       subject: nextSubject,
       body: nextBody,
+      merge: mergeFields,
     })
   }
 
@@ -216,6 +253,10 @@ export default function AdminNotifications() {
     event.preventDefault()
     setError('')
     setNotice('')
+    if (!usingSupabase) {
+      setError('Supabase is not configured on this deploy, so email cannot be sent.')
+      return
+    }
     if (!subject.trim() || !body.trim()) {
       setError('Add a subject and message.')
       return
@@ -239,12 +280,18 @@ export default function AdminNotifications() {
     setNotice(`Email sent to ${audience === 'all' ? `${users.length} users` : `${list.length} recipient(s)`}.`)
     setSubject('')
     setBody('')
+    setTemplateId('')
+    setMergeFields(defaultMergeValues())
     setSelected([])
   }
 
   async function handleTest() {
     setError('')
     setNotice('')
+    if (!usingSupabase) {
+      setError('Supabase is not configured on this deploy, so email cannot be sent.')
+      return
+    }
     if (!subject.trim() || !body.trim()) {
       setError('Add a subject and message before sending a test.')
       return
@@ -301,6 +348,17 @@ export default function AdminNotifications() {
         <div className="delivery-compose-copy">
           <h2>Compose Email</h2>
           <label>
+            Template
+            <select value={templateId} onChange={(event) => applyTemplate(event.target.value)}>
+              <option value="">Blank message</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Subject
             <input
               value={subject}
@@ -308,6 +366,22 @@ export default function AdminNotifications() {
               placeholder="Enter email subject"
             />
           </label>
+          {activeMergeFields.length > 0 && (
+            <div className="merge-fields">
+              {activeMergeFields.map((field) => (
+                <label key={field.key}>
+                  {field.label}
+                  <input
+                    value={mergeFields[field.key] || ''}
+                    onChange={(event) =>
+                      setMergeFields((current) => ({ ...current, [field.key]: event.target.value }))
+                    }
+                    placeholder={field.label}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
           <label>
             Message (HTML supported)
             <textarea
@@ -317,25 +391,36 @@ export default function AdminNotifications() {
               placeholder="Write your message. You can use HTML tags."
             />
             <small>
-              HTML tags like <code>&lt;p&gt;</code>, <code>&lt;strong&gt;</code>, and <code>&lt;br&gt;</code> are
-              supported.
+              Choose a template or write HTML. Merge tags like <code>{'{{first_name}}'}</code> are filled per
+              recipient.
             </small>
           </label>
           <section className="message-preview" aria-live="polite">
             <div className="message-preview-label">Message preview</div>
-            <div className="email-frame">
-              <div className="email-frame-bar">
-                <img src="/logo.png" alt="" />
-                Chime Support
-              </div>
-              <div className="email-frame-body">
-                <h3>{subject.trim() || 'Subject'}</h3>
-                <div
-                  className="email-frame-copy"
-                  dangerouslySetInnerHTML={{ __html: previewHtml(body) }}
+            {fullDocumentPreview ? (
+              <div className="email-frame email-frame-full">
+                <iframe
+                  title="Email preview"
+                  className="email-frame-doc"
+                  sandbox=""
+                  srcDoc={previewHtml(previewBody)}
                 />
               </div>
-            </div>
+            ) : (
+              <div className="email-frame">
+                <div className="email-frame-bar">
+                  <img src="/logo.png" alt="" />
+                  Chime Support
+                </div>
+                <div className="email-frame-body">
+                  <h3>{previewSubject.trim() || 'Subject'}</h3>
+                  <div
+                    className="email-frame-copy"
+                    dangerouslySetInnerHTML={{ __html: previewHtml(previewBody) }}
+                  />
+                </div>
+              </div>
+            )}
           </section>
           {(error || notice || loadError) && (
             <p className={error || (loadError && !notice) ? 'login-error' : 'login-copy'}>

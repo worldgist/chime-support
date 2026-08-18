@@ -144,12 +144,23 @@ export async function createAdminAlert(email) {
 }
 
 export async function dispatchEmailDelivery(notificationId) {
-  if (!notificationId) return null
+  if (!notificationId) return { ok: false, error: 'Missing notification id.' }
+  const { data: sessionData } = await supabase.auth.getSession()
+  const token = sessionData?.session?.access_token
   const { data, error } = await supabase.functions.invoke('send-email-notification', {
     body: { notificationId },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
-  if (!error) return data || { ok: true }
+  if (!error) {
+    if (data?.ok === false || data?.error) {
+      return { ok: false, error: data.error || 'Send failed' }
+    }
+    return data || { ok: true }
+  }
   let message = error.message || 'Send failed'
+  if (/not found|404/i.test(message)) {
+    message = 'Email function is not deployed. Deploy send-email-notification in Supabase.'
+  }
   if (error.context) {
     try {
       const body = await error.context.json()

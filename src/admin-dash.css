@@ -1153,6 +1153,7 @@ select.status-badge {
 
 .delivery-compose input,
 .delivery-compose textarea,
+.delivery-compose select,
 .delivery-recipients select {
   border: 1px solid var(--dash-border);
   border-radius: 12px;
@@ -1165,6 +1166,12 @@ select.status-badge {
   min-height: 280px;
   resize: vertical;
   line-height: 1.5;
+}
+
+.merge-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .message-preview {
@@ -1230,6 +1237,18 @@ select.status-badge {
 
 .email-frame-copy p:last-child {
   margin-bottom: 0;
+}
+
+.email-frame-full {
+  background: #f4f6f5;
+}
+
+.email-frame-doc {
+  display: block;
+  width: 100%;
+  height: 720px;
+  border: 0;
+  background: #f4f6f5;
 }
 
 .delivery-compose small {
@@ -1373,6 +1392,14 @@ select.status-badge {
   .delivery-compose-copy {
     border-right: 0;
     border-bottom: 1px solid var(--dash-border);
+  }
+
+  .merge-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .email-frame-doc {
+    height: 560px;
   }
 }
 

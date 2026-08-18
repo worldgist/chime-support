@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { loadVisitor } from '../utils/chatStore'
-import { CATALOG_TEMPLATES } from '../data/emailCatalog'
+import { CATALOG_TEMPLATES, mergeEmailTemplates } from '../data/emailCatalog'
+import { applyEmailMerge } from '../utils/emailMerge'
 import { useAuth } from './AuthContext'
 import { FROM_EMAIL } from '../utils/emailDelivery'
 import {
@@ -164,7 +165,7 @@ export function NotificationProvider({ children }) {
       fetchEmailSettings(),
     ])
     setEmails(withoutChatNotifications(nextEmails))
-    if (nextTemplates.length) setTemplates(nextTemplates)
+    setTemplates(mergeEmailTemplates(nextTemplates))
     if (nextSettings) setSettings((current) => ({ ...current, ...nextSettings }))
     setError('')
     setLoading(false)
@@ -331,9 +332,10 @@ export function NotificationProvider({ children }) {
     return email
   }
 
-  async function sendToUsers({ recipients = [], toAll = false, subject, body, fromName = 'Chime Support' }) {
-    const trimmedSubject = subject.trim()
-    const trimmedBody = body.trim()
+  async function sendToUsers({ recipients = [], toAll = false, subject, body, fromName = 'Chime Support', merge = {} }) {
+    const keepPersonal = ['first_name', 'user_name']
+    const trimmedSubject = applyEmailMerge(String(subject || '').trim(), merge, { keep: keepPersonal })
+    const trimmedBody = applyEmailMerge(String(body || '').trim(), merge, { keep: keepPersonal })
     if (!trimmedSubject || !trimmedBody) return null
     if (!toAll && recipients.length === 0) return null
 
@@ -355,46 +357,42 @@ export function NotificationProvider({ children }) {
     }
     const userCopy = { ...sent, id: `user-${Date.now()}`, read: false }
 
-    if (supabase) {
-      try {
-        const customerCopy = await insertEmailNotification(userCopy, 'customer')
-        const delivery = await dispatchEmailDelivery(customerCopy.id)
-        const failed = delivery && delivery.ok === false
-        const adminCopy = await insertEmailNotification(
-          {
-            ...sent,
-            deliveryStatus: failed ? 'failed' : delivery?.skipped ? 'skipped' : 'sent',
-            deliveryError: failed ? delivery.error : '',
-            resendId: delivery?.id || '',
-            read: true,
-          },
-          'admin',
-        )
-        setEmails((current) => [adminCopy, ...current.filter((item) => item.id !== adminCopy.id)].slice(0, 50))
-        setUserEmails((current) => [customerCopy, ...current.filter((item) => item.id !== customerCopy.id)].slice(0, 50))
-        showToast(setToast, {
-          ...adminCopy,
-          subject: failed ? `Send failed: ${trimmedSubject}` : `Sent: ${trimmedSubject}`,
-          preview: failed ? delivery.error : `Delivered to ${toLabel}`,
-        })
-        return {
-          ...adminCopy,
-          deliveryStatus: failed ? 'failed' : 'sent',
-          deliveryError: failed ? delivery.error : '',
-        }
-      } catch (sendError) {
-        return { deliveryStatus: 'failed', deliveryError: sendError.message || 'Could not send that email.' }
+    if (!supabase) {
+      return {
+        deliveryStatus: 'failed',
+        deliveryError: 'Supabase is not configured, so email cannot be sent.',
       }
     }
 
-    setEmails((current) => [sent, ...current].slice(0, 50))
-    setUserEmails((current) => [userCopy, ...current].slice(0, 50))
-    showToast(setToast, {
-      ...sent,
-      subject: `Sent: ${trimmedSubject}`,
-      preview: `Delivered to ${toLabel}`,
-    })
-    return sent
+    try {
+      const customerCopy = await insertEmailNotification(userCopy, 'customer')
+      const delivery = await dispatchEmailDelivery(customerCopy.id)
+      const failedSend = !delivery || delivery.ok === false || Boolean(delivery?.error && delivery.ok !== true)
+      const adminCopy = await insertEmailNotification(
+        {
+          ...sent,
+          deliveryStatus: failedSend ? 'failed' : 'sent',
+          deliveryError: failedSend ? delivery?.error || 'Send failed' : '',
+          resendId: delivery?.id || '',
+          read: true,
+        },
+        'admin',
+      )
+      setEmails((current) => [adminCopy, ...current.filter((item) => item.id !== adminCopy.id)].slice(0, 50))
+      setUserEmails((current) => [customerCopy, ...current.filter((item) => item.id !== customerCopy.id)].slice(0, 50))
+      showToast(setToast, {
+        ...adminCopy,
+        subject: failedSend ? `Send failed: ${trimmedSubject}` : `Sent: ${trimmedSubject}`,
+        preview: failedSend ? delivery?.error || 'Send failed' : `Delivered to ${toLabel}`,
+      })
+      return {
+        ...adminCopy,
+        deliveryStatus: failedSend ? 'failed' : 'sent',
+        deliveryError: failedSend ? delivery?.error || 'Send failed' : '',
+      }
+    } catch (sendError) {
+      return { deliveryStatus: 'failed', deliveryError: sendError.message || 'Could not send that email.' }
+    }
   }
 
   async function markUserRead(id) {
@@ -452,10 +450,7 @@ export function NotificationProvider({ children }) {
     if (supabase) {
       try {
         const saved = await saveEmailTemplate(template, admin?.name || 'Admin')
-        setTemplates((current) => {
-          const rest = current.filter((item) => item.id !== saved.id)
-          return [saved, ...rest]
-        })
+        setTemplates((current) => mergeEmailTemplates([saved, ...current.filter((item) => item.id !== saved.id)]))
         return { ok: true, template: saved }
       } catch (saveError) {
         return { ok: false, error: saveError.message || 'Could not save that template.' }
@@ -468,10 +463,7 @@ export function NotificationProvider({ children }) {
       updated: stamp(),
       by: admin?.name || 'Admin',
     }
-    setTemplates((current) => {
-      const rest = current.filter((item) => item.id !== local.id)
-      return [local, ...rest]
-    })
+    setTemplates((current) => mergeEmailTemplates([local, ...current.filter((item) => item.id !== local.id)]))
     return { ok: true, template: local }
   }
 
@@ -483,7 +475,7 @@ export function NotificationProvider({ children }) {
         return { ok: false, error: deleteError.message || 'Could not delete that template.' }
       }
     }
-    setTemplates((current) => current.filter((item) => item.id !== id))
+    setTemplates((current) => mergeEmailTemplates(current.filter((item) => item.id !== id)))
     return { ok: true }
   }
 

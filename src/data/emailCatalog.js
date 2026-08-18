@@ -1,4 +1,40 @@
+import { PAYMENT_PROCESSED_HTML, PAYMENT_PROCESSED_SUBJECT } from './paymentProcessedTemplate'
+import { PAY_ANYONE_HTML, PAY_ANYONE_SUBJECT } from './payAnyoneTemplate'
+
 export const CATALOG_TEMPLATES = [
+  {
+    id: 'payment-processed',
+    name: 'Payment/Transfer Processed',
+    desc: 'Sent after a payment or transfer is deducted',
+    subject: PAYMENT_PROCESSED_SUBJECT,
+    snippet: 'A payment or transfer of {{amount}} has been deducted.',
+    body: PAYMENT_PROCESSED_HTML,
+    cta: 'Get help',
+    icon: 'card',
+    tone: 'green',
+    status: 'active',
+    updated: 'Aug 18, 2026',
+    by: 'Admin User',
+  },
+  {
+    id: 'pay-anyone',
+    name: 'Pay Anyone',
+    desc: 'Sent after a Pay Anyone transfer',
+    subject: PAY_ANYONE_SUBJECT,
+    snippet: 'You just sent {{amount}} for "{{memo}}" to {{payee_name}}.',
+    body: PAY_ANYONE_HTML,
+    cta: 'View in Chime app',
+    icon: 'swap',
+    tone: 'green',
+    status: 'active',
+    updated: 'Aug 18, 2026',
+    by: 'Admin User',
+    defaults: {
+      amount: '$400.00',
+      memo: 'Legal Service',
+      payee_name: 'Wesley H.',
+    },
+  },
   {
     id: 'welcome',
     name: 'Welcome Email',
@@ -126,3 +162,15 @@ export const CATALOG_TEMPLATES = [
     by: 'Marcus Hale',
   },
 ]
+
+export function mergeEmailTemplates(remote = []) {
+  const catalogIds = new Set(CATALOG_TEMPLATES.map((item) => item.id))
+  const byId = new Map(CATALOG_TEMPLATES.map((item) => [item.id, item]))
+  for (const item of remote) {
+    byId.set(item.id, { ...(byId.get(item.id) || {}), ...item })
+  }
+  return [
+    ...CATALOG_TEMPLATES.map((item) => byId.get(item.id)),
+    ...remote.filter((item) => !catalogIds.has(item.id)),
+  ]
+}

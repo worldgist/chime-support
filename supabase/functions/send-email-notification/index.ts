@@ -24,10 +24,36 @@ function looksLikeHtml(value) {
   return /<\/?[a-z][\s\S]*>/i.test(String(value || ''))
 }
 
+function isFullEmailDocument(value) {
+  const raw = String(value || '').trim()
+  return /^<!DOCTYPE html/i.test(raw) || /^<html[\s>]/i.test(raw)
+}
+
+function sanitizeHtml(raw) {
+  return String(raw || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/\son\w+=(?:"[^"]*"|'[^']*')/gi, '')
+}
+
+function toText(body) {
+  return String(body || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function toHtml(subject, body) {
   const raw = String(body || '')
+  if (isFullEmailDocument(raw)) return sanitizeHtml(raw)
+
   const inner = looksLikeHtml(raw)
-    ? raw.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').replace(/\son\w+=(?:"[^"]*"|'[^']*')/gi, '')
+    ? sanitizeHtml(raw)
     : escapeHtml(raw)
         .split('\n')
         .map((line) => line || '&nbsp;')
@@ -48,7 +74,7 @@ function toHtml(subject, body) {
             <tr>
               <td style="padding:24px;">
                 <h1 style="margin:0 0 12px;font-size:20px;">${escapeHtml(subject)}</h1>
-                <p style="margin:0;line-height:1.6;font-size:15px;">${inner}</p>
+                <div style="margin:0;line-height:1.6;font-size:15px;">${inner}</div>
               </td>
             </tr>
             <tr>
@@ -62,6 +88,16 @@ function toHtml(subject, body) {
     </table>
   </body>
 </html>`
+}
+
+function mergeTokens(text, vars) {
+  return String(text || '').replace(/\{\{(\w+)\}\}/g, (match, key) =>
+    vars[key] != null && vars[key] !== '' ? String(vars[key]) : match,
+  )
+}
+
+function firstName(name) {
+  return String(name || 'there').trim().split(/\s+/)[0] || 'there'
 }
 
 function isDeliverableEmail(email) {
@@ -131,50 +167,62 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: true, id: notification.resend_id })
   }
 
-  if (
-    notification.audience === 'admin' &&
-    notification.direction === 'out' &&
-    notification.delivery_status === 'skipped'
-  ) {
-    return json({ ok: true, skipped: true })
-  }
+  const listed = uniqueEmails([
+    ...(notification.recipients || []).map((item) => (typeof item === 'string' ? item : item?.email)),
+    ...(String(notification.to_label || '').split(',')),
+  ])
 
-  let recipients = []
-  if (notification.audience === 'customer') {
-    recipients = uniqueEmails([
-      ...(notification.recipients || []).map((item) => item?.email),
-      ...(String(notification.to_label || '').split(',')),
-    ])
-  } else {
+  let recipients = listed
+  if (notification.direction !== 'out' && notification.audience !== 'customer') {
     const { data: settings } = await supabase.from('email_settings').select('recipient').eq('id', 1).maybeSingle()
-    recipients = uniqueEmails([settings?.recipient])
+    recipients = uniqueEmails([settings?.recipient, ...listed])
   }
 
   if (recipients.length === 0) {
     await supabase
       .from('email_notifications')
       .update({
-        delivery_status: 'skipped',
+        delivery_status: 'failed',
         delivery_error: 'No deliverable recipient addresses',
       })
       .eq('id', notificationId)
-    return json({ ok: true, skipped: true, error: 'No deliverable recipient addresses' })
+    return json({ ok: false, error: 'No deliverable recipient addresses' }, 400)
   }
 
-  async function sendViaResend(to) {
+  function varsForEmail(email) {
+    const rec = (notification.recipients || []).find((item) => {
+      const value = typeof item === 'string' ? item : item?.email
+      return String(value || '').trim().toLowerCase() === email
+    })
+    const name = typeof rec === 'object' ? rec?.name : ''
+    return {
+      first_name: firstName(name),
+      user_name: name || 'there',
+      brand_name: 'Chime',
+      company_name: 'Chime',
+      support_url: 'https://vasawealthearn.com',
+      app_url: 'https://vasawealthearn.com',
+      year: String(new Date().getFullYear()),
+    }
+  }
+
+  async function sendViaResend(chunk, subject, body) {
+    const mail = {
+      from,
+      to: chunk[0],
+      subject,
+      text: toText(body) || subject,
+      html: toHtml(subject, body),
+    }
+    if (chunk.length > 1) mail.bcc = chunk.slice(1)
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from,
-        to,
-        subject: notification.subject,
-        text: notification.body,
-        html: toHtml(notification.subject, notification.body),
-      }),
+      body: JSON.stringify(mail),
     })
     const data = await res.json()
     return { res, data }
@@ -182,21 +230,46 @@ Deno.serve(async (req) => {
 
   await supabase
     .from('email_notifications')
-    .update({ delivery_status: 'sending' })
+    .update({ delivery_status: 'sending', delivery_error: null })
     .eq('id', notificationId)
 
-  const { res, data } = await sendViaResend(recipients)
-
-  if (!res.ok) {
-    const finalMessage = data?.message || data?.error || 'Resend rejected the email.'
-    await supabase
-      .from('email_notifications')
-      .update({
-        delivery_status: 'failed',
-        delivery_error: String(finalMessage),
+  const needsPersonalize = /\{\{(first_name|user_name)\}\}/.test(`${notification.subject}\n${notification.body}`)
+  const jobs = needsPersonalize
+    ? recipients.map((email) => {
+        const vars = varsForEmail(email)
+        return {
+          chunk: [email],
+          subject: mergeTokens(notification.subject, vars),
+          body: mergeTokens(notification.body, vars),
+        }
       })
-      .eq('id', notificationId)
-    return json({ error: finalMessage, details: data }, 502)
+    : (() => {
+        const batches = []
+        for (let index = 0; index < recipients.length; index += 50) {
+          batches.push({
+            chunk: recipients.slice(index, index + 50),
+            subject: notification.subject,
+            body: notification.body,
+          })
+        }
+        return batches
+      })()
+
+  const ids = []
+  for (const job of jobs) {
+    const { res, data } = await sendViaResend(job.chunk, job.subject, job.body)
+    if (!res.ok) {
+      const finalMessage = data?.message || data?.error || 'Resend rejected the email.'
+      await supabase
+        .from('email_notifications')
+        .update({
+          delivery_status: 'failed',
+          delivery_error: String(finalMessage),
+        })
+        .eq('id', notificationId)
+      return json({ error: finalMessage, details: data }, 502)
+    }
+    if (data?.id) ids.push(data.id)
   }
 
   await supabase
@@ -204,10 +277,10 @@ Deno.serve(async (req) => {
     .update({
       delivery_status: 'sent',
       delivery_error: null,
-      resend_id: data?.id || null,
+      resend_id: ids[0] || null,
       sent_at: new Date().toISOString(),
     })
     .eq('id', notificationId)
 
-  return json({ ok: true, id: data?.id, to: recipients })
+  return json({ ok: true, id: ids[0] || null, to: recipients })
 })
