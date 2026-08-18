@@ -198,6 +198,51 @@
   margin-bottom: 2px;
 }
 
+.system-notice {
+  align-self: center;
+  max-width: min(92%, 420px);
+  text-align: center;
+  background: #eef8f1;
+  color: #1b5e3b;
+  border: 1px solid #cdead4;
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.system-notice strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.system-notice p {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.system-notice time {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.resolved-banner {
+  margin: 0 16px 10px;
+  background: #eef8f1;
+  color: #1b5e3b;
+  border: 1px solid #cdead4;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .row {
   display: flex;
   gap: 8px;

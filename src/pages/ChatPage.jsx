@@ -14,13 +14,13 @@ const ACCOUNT_REPLIES = [
 ]
 
 export default function ChatPage() {
-  const { visitor, liveMessages, typing, sendUserMessage, setUserTyping, agentOnline, usingSupabase } = useChat()
+  const { visitor, liveMessages, liveResolved, typing, sendUserMessage, setUserTyping, agentOnline, usingSupabase } = useChat()
   const threadRef = useRef(null)
 
   useEffect(() => {
     const thread = threadRef.current
     if (thread) thread.scrollTop = thread.scrollHeight
-  }, [liveMessages, typing])
+  }, [liveMessages, typing, liveResolved])
 
   if (!visitor || (usingSupabase && !visitor.ticketId)) {
     return <ChatDetailsForm />
@@ -30,9 +30,14 @@ export default function ChatPage() {
     <div className="page">
       <div className="app">
         <Header />
-        <SupportBanner />
-        <AgentCard agentOnline={agentOnline} />
+        <SupportBanner resolved={liveResolved} />
+        <AgentCard agentOnline={agentOnline} resolved={liveResolved} />
         <ChatThread messages={liveMessages} typing={typing} threadRef={threadRef} />
+        {liveResolved && (
+          <p className="resolved-banner">
+            This issue has been marked as resolved. Send a message if you still need help and we will reopen the chat.
+          </p>
+        )}
         <ChatInput
           onSend={sendUserMessage}
           onTyping={setUserTyping}

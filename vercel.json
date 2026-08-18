@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/admin/:path*", "destination": "/index.html" },
+    { "source": "/chat", "destination": "/index.html" },
+    { "source": "/chat/:path*", "destination": "/index.html" },
+    { "source": "/verify/:path*", "destination": "/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

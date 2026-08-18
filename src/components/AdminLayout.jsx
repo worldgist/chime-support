@@ -11,7 +11,7 @@ const MAIN_LINKS = [
   { to: '/admin/users', label: 'Users', icon: <IconUsers /> },
   { to: '/admin/tickets', label: 'Support Tickets', icon: <IconTicket /> },
   { to: '/admin/kyc', label: 'KYC Management', icon: <IconShield /> },
-  { to: '/admin/notifications', label: 'Email Notifications', icon: <MailIcon /> },
+  { to: '/admin/notifications', label: 'Email Delivery', icon: <MailIcon /> },
 ]
 
 function initials(name = 'AU') {

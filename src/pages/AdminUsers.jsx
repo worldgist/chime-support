@@ -423,7 +423,7 @@ export default function AdminUsers() {
               <button
                 type="button"
                 className="ghost-btn"
-                onClick={() => navigate(`/admin/notifications/create?email=${encodeURIComponent(selected.email)}`)}
+                onClick={() => navigate(`/admin/notifications?email=${encodeURIComponent(selected.email)}`)}
               >
                 Send email
               </button>

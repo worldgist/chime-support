@@ -22,11 +22,17 @@ import {
 } from '../utils/supportTickets'
 import { persistChatAttachments } from '../utils/chatStorage'
 import { toLocalAttachment } from '../utils/attachments'
-import { useNotifications } from './NotificationContext'
 
 const ChatContext = createContext(null)
 export const LIVE_CHAT_ID = 'live'
 export { formatTime }
+
+export const RESOLVED_NOTICE =
+  'Your issue has been marked as resolved. If you still need help, send another message and we will reopen this chat.'
+
+export function isResolvedNotice(message) {
+  return message?.event === 'resolved' || message?.text === RESOLVED_NOTICE
+}
 
 const starterMessages = [
   {
@@ -206,11 +212,58 @@ function patchConversation(list, id, patch) {
 function upsertConversation(list, thread) {
   const exists = list.some((item) => item.id === thread.id)
   if (!exists) return [thread, ...list]
-  return list.map((item) => (item.id === thread.id ? { ...item, ...thread } : item))
+  return list.map((item) => (item.id === thread.id ? mergeThread(item, thread) : item))
+}
+
+function mergeThread(existing, incoming) {
+  const incomingCount = incoming.messages?.length || 0
+  const existingCount = existing.messages?.length || 0
+  if (incomingCount >= existingCount) return { ...existing, ...incoming }
+  return { ...existing, ...incoming, messages: existing.messages }
+}
+
+function mergeIncomingTickets(current, incoming, visitorTicketId) {
+  const currentById = new Map(current.map((item) => [item.id, item]))
+  const merged = incoming.map((ticket) => {
+    const existing = currentById.get(ticket.id)
+    return existing ? mergeThread(existing, ticket) : ticket
+  })
+  const incomingIds = new Set(incoming.map((item) => item.id))
+  const extras = current.filter(
+    (item) => item.id === visitorTicketId && item.id !== LIVE_CHAT_ID && !incomingIds.has(item.id),
+  )
+  return extras.length ? [...merged, ...extras] : merged
+}
+
+function appendMessage(list, ticketId, message, customer) {
+  const existing = list.find((item) => item.id === ticketId)
+  if (!existing) {
+    return [
+      {
+        id: ticketId,
+        customer: {
+          name: customer?.name || 'Customer',
+          email: customer?.email || '',
+          phone: customer?.phone || '',
+          topic: customer?.topic || 'Account issue',
+          memberSince: String(new Date().getFullYear()),
+        },
+        status: 'open',
+        unread: 1,
+        messages: [message],
+      },
+      ...list,
+    ]
+  }
+  if (existing.messages.some((item) => String(item.id) === String(message.id))) return list
+  return patchConversation(list, ticketId, (conversation) => ({
+    status: conversation.status === 'resolved' ? 'open' : conversation.status,
+    unread: 1,
+    messages: [...conversation.messages, message],
+  }))
 }
 
 export function ChatProvider({ children }) {
-  const { pushEmail } = useNotifications()
   const usingSupabase = Boolean(supabase)
   const [conversations, setConversations] = useState(() =>
     usingSupabase ? [] : loadConversations(initialConversations),
@@ -229,6 +282,7 @@ export function ChatProvider({ children }) {
   const agentOnlineRef = useRef(agentOnline)
   const visitorRef = useRef(visitor)
   const usingSupabaseRef = useRef(usingSupabase)
+  const adminFetchRef = useRef(0)
   activeIdRef.current = activeId
   agentOnlineRef.current = agentOnline
   visitorRef.current = visitor
@@ -252,18 +306,13 @@ export function ChatProvider({ children }) {
     if (!supabase) return
     const { data } = await supabase.auth.getSession()
     if (!data.session) return
+    const requestId = ++adminFetchRef.current
     const tickets = await fetchAdminTickets()
-    setConversations((current) => {
-      const visitorTicket = visitorRef.current?.ticketId
-      const fromAdmin = tickets
-      if (!visitorTicket) return fromAdmin
-      const visitorThread = current.find((item) => item.id === visitorTicket)
-      if (!visitorThread || fromAdmin.some((item) => item.id === visitorTicket)) return fromAdmin
-      return upsertConversation(fromAdmin, visitorThread)
-    })
+    if (requestId !== adminFetchRef.current) return
+    setConversations((current) => mergeIncomingTickets(current, tickets, visitorRef.current?.ticketId))
     setActiveId((id) => {
       if (id && tickets.some((item) => item.id === id)) return id
-      return tickets[0]?.id || null
+      return tickets[0]?.id || id || null
     })
   }
 
@@ -295,6 +344,26 @@ export function ChatProvider({ children }) {
       }
       if (data.type === 'admin-online') {
         setAgentOnline(Boolean(data.online))
+      }
+      if (data.type === 'ticket-upsert' && data.thread?.id) {
+        setConversations((current) => upsertConversation(current, data.thread))
+        setActiveId((id) => id || data.thread.id)
+      }
+      if (data.type === 'ticket-message' && data.ticketId && data.message) {
+        setConversations((current) => appendMessage(current, data.ticketId, data.message, data.customer))
+      }
+      if (data.type === 'ticket-status' && data.id) {
+        setConversations((current) => {
+          if (!current.some((item) => item.id === data.id)) return current
+          return patchConversation(current, data.id, (conversation) => {
+            const notice = data.message
+            const already = notice && isResolvedNotice(conversation.messages.at(-1))
+            return {
+              status: data.status,
+              messages: notice && !already ? [...conversation.messages, notice] : conversation.messages,
+            }
+          })
+        })
       }
     }
 
@@ -408,6 +477,7 @@ export function ChatProvider({ children }) {
         const thread = await fetchCustomerThread(created.id, created.access_token)
         setConversations((current) => upsertConversation(current, thread))
         setActiveId(thread.id)
+        channelRef.current?.postMessage({ type: 'ticket-upsert', thread })
         return { ok: true }
       } catch (error) {
         return {
@@ -501,25 +571,26 @@ export function ChatProvider({ children }) {
       }))
     })
 
-    const preview = trimmed || message.attachments?.[0]?.name || 'Attachment'
-    pushEmail({
-      type: 'chat',
-      from: 'Chime Chat <noreply@chimesupport.local>',
-      subject: 'New live customer message',
-      preview,
-      body: `A customer sent a new message about their account.\n\n“${preview}”\n\nOpen Support Tickets to reply.`,
-      href: '/admin/tickets',
-    })
-
     if (supabase && visitorRef.current?.ticketId && visitorRef.current?.ticketToken) {
       try {
-        await sendCustomerMessage(visitorRef.current.ticketId, visitorRef.current.ticketToken, {
+        const saved = await sendCustomerMessage(visitorRef.current.ticketId, visitorRef.current.ticketToken, {
           text: trimmed,
           attachments: stored,
         })
+        channelRef.current?.postMessage({
+          type: 'ticket-message',
+          ticketId,
+          message: saved,
+          customer: profile,
+        })
         await refreshCustomerThread()
-      } catch {
-        // Keep the optimistic message if the retry poll recovers it.
+      } catch (sendError) {
+        setConversations((current) =>
+          patchConversation(current, ticketId, (conversation) => ({
+            messages: conversation.messages.filter((item) => item.id !== message.id),
+          })),
+        )
+        return { ok: false, error: sendError.message || 'Could not send that message.' }
       }
       return { ok: true }
     }
@@ -604,10 +675,42 @@ export function ChatProvider({ children }) {
     }
   }
 
-  function setStatus(id, status) {
-    setConversations((current) => patchConversation(current, id, () => ({ status })))
+  async function setStatus(id, status) {
+    const conversation = conversations.find((item) => item.id === id)
+    const becameResolved = status === 'resolved' && conversation?.status !== 'resolved'
+    const notice = becameResolved
+      ? {
+          id: `resolved-${id}-${Date.now()}`,
+          from: 'support',
+          text: RESOLVED_NOTICE,
+          time: formatTime(),
+          event: 'resolved',
+        }
+      : null
+
+    setConversations((current) =>
+      patchConversation(current, id, (item) => ({
+        status,
+        unread: status === 'resolved' ? 0 : item.unread,
+        messages:
+          status === 'resolved' && item.status !== 'resolved' && notice && !isResolvedNotice(item.messages.at(-1))
+            ? [...item.messages, notice]
+            : item.messages,
+      })),
+    )
+
+    channelRef.current?.postMessage({ type: 'ticket-status', id, status, message: notice })
+
     if (supabase && id && id !== LIVE_CHAT_ID) {
-      updateTicketStatus(id, status).catch(() => {})
+      try {
+        await updateTicketStatus(id, status)
+        if (becameResolved) {
+          await sendAdminMessage(id, { text: RESOLVED_NOTICE, attachments: [] })
+        }
+        await refreshAdminTickets()
+      } catch {
+        // Keep the local status and notice if the ticket update is delayed.
+      }
     }
   }
 
@@ -631,6 +734,7 @@ export function ChatProvider({ children }) {
       activeId,
       activeConversation,
       liveMessages: live?.messages || [],
+      liveResolved: live?.status === 'resolved',
       typing: botTyping || agentTyping,
       userTyping,
       agentOnline,

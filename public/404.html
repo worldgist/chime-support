@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chime Support</title>
+    <script>
+      sessionStorage.setItem(
+        'chime-spa-redirect',
+        location.pathname + location.search + location.hash,
+      )
+      location.replace('/')
+    </script>
+  </head>
+  <body></body>
+</html>

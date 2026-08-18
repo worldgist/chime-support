@@ -30,7 +30,7 @@ export const LIVE_CUSTOMER_EMAIL = 'guest@chimesupport.local'
 
 const defaultSettings = {
   recipient: FROM_EMAIL,
-  chatMessages: true,
+  chatMessages: false,
   kycPending: true,
   kycDecisions: true,
 }
@@ -41,12 +41,6 @@ export const EMAIL_TEMPLATES = [
     label: 'Custom message',
     subject: '',
     body: '',
-  },
-  {
-    id: 'follow-up',
-    label: 'Chat follow-up',
-    subject: 'We replied to your Chime Support chat',
-    body: 'Hi {name},\n\nA Chime Support specialist has replied to your conversation. Open chat anytime to continue.\n\nThank you,\nChime Support',
   },
   {
     id: 'kyc-ok',
@@ -64,22 +58,11 @@ export const EMAIL_TEMPLATES = [
     id: 'account',
     label: 'Account update',
     subject: 'An update on your Chime account',
-    body: 'Hi {name},\n\nWe wanted to let you know there is an update on your account. If you have questions, reply in Chime Support chat — we are here 24/7.\n\nThank you,\nChime Support',
+    body: 'Hi {name},\n\nWe wanted to let you know there is an update on your Chime account. If you have questions, reply in Chime Support chat — we are here 24/7.\n\nThank you,\nChime Support',
   },
 ]
 
 const seedEmails = [
-  {
-    id: 'mail-1',
-    type: 'chat',
-    from: 'Chime Chat <noreply@chimesupport.local>',
-    subject: 'New live customer message',
-    preview: 'Hi, I have a question about a recent transaction on my account.',
-    body: 'A customer just sent a message in Live chat.\n\n“Hi, I have a question about a recent transaction on my account.”\n\nOpen Admin Chat Support to reply.',
-    href: '/admin/tickets',
-    time: 'Today, 10:31 AM',
-    read: false,
-  },
   {
     id: 'mail-2',
     type: 'kyc',
@@ -131,6 +114,14 @@ function stamp() {
   return new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+function isChatNotification(email) {
+  return email?.type === 'chat'
+}
+
+function withoutChatNotifications(list = []) {
+  return list.filter((item) => !isChatNotification(item))
+}
+
 function showToast(setToast, email, duration = 4200) {
   setToast(email)
   window.setTimeout(() => setToast((current) => (current?.id === email.id ? null : current)), duration)
@@ -142,13 +133,14 @@ export function NotificationProvider({ children }) {
   const [emails, setEmails] = useState(() => {
     if (usingSupabase) return []
     const stored = loadJson(EMAILS_KEY, null)
-    return Array.isArray(stored) && stored.length ? stored : seedEmails
+    return withoutChatNotifications(Array.isArray(stored) && stored.length ? stored : seedEmails)
   })
   const [userEmails, setUserEmails] = useState(() => (usingSupabase ? [] : loadJson(USER_EMAILS_KEY, [])))
   const [templates, setTemplates] = useState(CATALOG_TEMPLATES)
   const [settings, setSettings] = useState(() => ({
     ...defaultSettings,
     ...loadJson(SETTINGS_KEY, {}),
+    chatMessages: false,
   }))
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(usingSupabase)
@@ -171,7 +163,7 @@ export function NotificationProvider({ children }) {
       fetchEmailTemplates(),
       fetchEmailSettings(),
     ])
-    setEmails(nextEmails)
+    setEmails(withoutChatNotifications(nextEmails))
     if (nextTemplates.length) setTemplates(nextTemplates)
     if (nextSettings) setSettings((current) => ({ ...current, ...nextSettings }))
     setError('')
@@ -263,11 +255,11 @@ export function NotificationProvider({ children }) {
     function onStorage(event) {
       if (event.key === EMAILS_KEY && event.newValue) {
         try {
-          const next = JSON.parse(event.newValue)
+          const next = withoutChatNotifications(JSON.parse(event.newValue))
           if (!Array.isArray(next)) return
           const newest = next[0]
           const currentFirst = emailsRef.current[0]
-          if (newest && newest.id !== currentFirst?.id && !newest.read) {
+          if (newest && newest.id !== currentFirst?.id && !newest.read && !isChatNotification(newest)) {
             showToast(setToast, newest)
           }
           skipSave.current = true
@@ -297,9 +289,9 @@ export function NotificationProvider({ children }) {
   }, [usingSupabase])
 
   function allowed(email) {
+    if (isChatNotification(email)) return false
     const current = settingsRef.current
     if (email.type === 'system') return true
-    if (email.type === 'chat') return current.chatMessages
     if (email.type === 'kyc' && email.event === 'decision') return current.kycDecisions
     if (email.type === 'kyc') return current.kycPending
     return true
@@ -430,7 +422,7 @@ export function NotificationProvider({ children }) {
     if (supabase) {
       try {
         const next = await fetchAdminEmails()
-        setEmails(next)
+        setEmails(withoutChatNotifications(next))
       } catch {
         // keep current list
       }
@@ -444,7 +436,7 @@ export function NotificationProvider({ children }) {
   }
 
   async function updateSettings(patch) {
-    const next = { ...settingsRef.current, ...patch }
+    const next = { ...settingsRef.current, ...patch, chatMessages: false }
     setSettings(next)
     if (!supabase) return { ok: true }
     try {
@@ -504,7 +496,9 @@ export function NotificationProvider({ children }) {
     })
   }
 
-  const unreadCount = emails.filter((item) => !item.read && item.direction !== 'out').length
+  const unreadCount = emails.filter(
+    (item) => !item.read && item.direction !== 'out' && !isChatNotification(item),
+  ).length
   const sentCount = emails.filter((item) => item.direction === 'out').length
 
   const value = useMemo(

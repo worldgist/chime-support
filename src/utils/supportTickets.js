@@ -87,25 +87,38 @@ export async function fetchAdminTickets() {
     .select('*')
     .order('last_activity_at', { ascending: false })
   if (error) throw error
+  if (!tickets?.length) return []
 
-  const ids = (tickets || []).map((item) => item.id)
-  if (ids.length === 0) return []
-
+  const ids = tickets.map((item) => item.id)
   const { data: messages, error: messageError } = await supabase
     .from('support_ticket_messages')
     .select('*')
     .in('ticket_id', ids)
     .order('created_at', { ascending: true })
-  if (messageError) throw messageError
 
   const byTicket = new Map()
-  for (const message of messages || []) {
-    const list = byTicket.get(message.ticket_id) || []
-    list.push(message)
-    byTicket.set(message.ticket_id, list)
+  if (!messageError) {
+    for (const message of messages || []) {
+      const list = byTicket.get(message.ticket_id) || []
+      list.push(message)
+      byTicket.set(message.ticket_id, list)
+    }
   }
 
-  return tickets.map((ticket) => mapTicket(ticket, byTicket.get(ticket.id) || []))
+  const mapped = tickets.map((ticket) => mapTicket(ticket, byTicket.get(ticket.id) || []))
+  const needsFallback = mapped.some((item) => item.messages.length === 0 && item.accessToken)
+  if (!needsFallback) return mapped
+
+  return Promise.all(
+    mapped.map(async (ticket, index) => {
+      if (ticket.messages.length > 0 || !tickets[index].access_token) return ticket
+      try {
+        return await fetchCustomerThread(tickets[index].id, tickets[index].access_token)
+      } catch {
+        return ticket
+      }
+    }),
+  )
 }
 
 export async function sendAdminMessage(ticketId, { text, attachments }) {

@@ -199,7 +199,6 @@ export default function LandingPage() {
         <p>
           <LockIcon /> Your information is secure with Chime
         </p>
-        <Link to="/admin/login">Admin chat support</Link>
       </footer>
     </div>
   )

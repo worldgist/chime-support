@@ -20,11 +20,18 @@ function escapeHtml(value = '') {
     .replaceAll('"', '&quot;')
 }
 
+function looksLikeHtml(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ''))
+}
+
 function toHtml(subject, body) {
-  const paragraphs = escapeHtml(body)
-    .split('\n')
-    .map((line) => line || '&nbsp;')
-    .join('<br />')
+  const raw = String(body || '')
+  const inner = looksLikeHtml(raw)
+    ? raw.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').replace(/\son\w+=(?:"[^"]*"|'[^']*')/gi, '')
+    : escapeHtml(raw)
+        .split('\n')
+        .map((line) => line || '&nbsp;')
+        .join('<br />')
 
   return `<!DOCTYPE html>
 <html>
@@ -41,7 +48,7 @@ function toHtml(subject, body) {
             <tr>
               <td style="padding:24px;">
                 <h1 style="margin:0 0 12px;font-size:20px;">${escapeHtml(subject)}</h1>
-                <p style="margin:0;line-height:1.6;font-size:15px;">${paragraphs}</p>
+                <p style="margin:0;line-height:1.6;font-size:15px;">${inner}</p>
               </td>
             </tr>
             <tr>

@@ -50,7 +50,7 @@ export function mapEmailTemplate(row) {
 export function mapEmailSettings(row) {
   return {
     recipient: row.recipient,
-    chatMessages: row.chat_messages,
+    chatMessages: false,
     kycPending: row.kyc_pending,
     kycDecisions: row.kyc_decisions,
   }
@@ -64,7 +64,7 @@ export async function fetchAdminEmails() {
     .order('created_at', { ascending: false })
     .limit(50)
   if (error) throw error
-  return (data || []).map(mapEmailNotification)
+  return (data || []).map(mapEmailNotification).filter((item) => item.type !== 'chat')
 }
 
 export async function fetchEmailTemplates() {
@@ -87,7 +87,7 @@ export async function saveEmailSettings(settings) {
     .from('email_settings')
     .update({
       recipient: settings.recipient,
-      chat_messages: settings.chatMessages,
+      chat_messages: false,
       kyc_pending: settings.kycPending,
       kyc_decisions: settings.kycDecisions,
       updated_at: new Date().toISOString(),

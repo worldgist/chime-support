@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CloseIcon, DoubleCheckIcon, DownloadIcon, FileIcon } from './icons'
 import { formatSize } from '../utils/attachments'
-import { initials } from '../context/ChatContext'
+import { initials, isResolvedNotice } from '../context/ChatContext'
 
 function Attachments({ items, onOpen }) {
   if (!items?.length) return null
@@ -73,6 +73,16 @@ export default function ChatThread({
         <div className="date-chip">Today</div>
 
         {messages.map((message) => {
+          if (isResolvedNotice(message)) {
+            return (
+              <div className="system-notice" key={message.id}>
+                <strong>Issue resolved</strong>
+                <p>{message.text}</p>
+                <time>{message.time}</time>
+              </div>
+            )
+          }
+
           const inbound =
             perspective === 'admin' ? message.from === 'user' : message.from === 'support'
 
