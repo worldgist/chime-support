@@ -1,0 +1,53 @@
+:root {
+  --green: #1fa85c;
+  --green-dark: #178a4a;
+  --green-soft: #e8f7ee;
+  --green-online: #8dffb0;
+  --bg: #f4f6f8;
+  --white: #ffffff;
+  --text: #1b1b1b;
+  --muted: #8a8f98;
+  --subtle: #c5c9cf;
+  --shadow: 0 8px 24px rgba(24, 40, 32, 0.08);
+  --font: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
