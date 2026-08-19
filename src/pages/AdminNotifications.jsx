@@ -8,7 +8,10 @@ import { useUsers } from '../context/UserContext'
 import { useNotifications } from '../context/NotificationContext'
 import { SendIcon } from '../components/icons'
 import { IconSearch } from '../components/adminIcons'
-import { applyEmailMerge, defaultMergeValues, isFullEmailDocument } from '../utils/emailMerge'
+import { CATALOG_TEMPLATES, mergeEmailTemplates } from '../data/emailCatalog'
+import { applyEmailMerge, attachEmailLink, defaultMergeValues, isFullEmailDocument, normalizeHttpUrl } from '../utils/emailMerge'
+
+const FEATURED_TEMPLATE_IDS = ['refund-pending', 'payment-processed', 'pay-anyone']
 
 const MERGE_FIELD_META = [
   { key: 'amount', label: 'Amount' },
@@ -130,12 +133,108 @@ function previewHtml(body) {
   return `<p>${escapeHtml(raw).replace(/\n/g, '<br />')}</p>`
 }
 
+function TemplateEditor({ form, setForm, error, saving, onCancel, onSubmit }) {
+  const previewMerge = defaultMergeValues(form)
+  const previewBody = applyEmailMerge(form.body, previewMerge)
+  const fullDocumentPreview = isFullEmailDocument(form.body)
+  const original = CATALOG_TEMPLATES.find((item) => item.id === form.id)
+
+  function restoreOriginal() {
+    if (!original) return
+    setForm((current) => ({
+      ...current,
+      name: original.name,
+      desc: original.desc,
+      subject: original.subject,
+      snippet: original.snippet,
+      body: original.body,
+      cta: original.cta,
+    }))
+  }
+
+  return (
+    <div className="kyc-modal" role="dialog" aria-labelledby="template-editor-title">
+      <form className="kyc-modal-card template-editor-card" onSubmit={onSubmit}>
+        <h2 id="template-editor-title">Edit template</h2>
+        <p>Change the saved name, subject, and message. Merge tags like {'{{first_name}}'} are filled per recipient.</p>
+        <label>
+          Template name
+          <input
+            value={form.name}
+            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            required
+          />
+        </label>
+        <label>
+          Description
+          <input
+            value={form.desc || ''}
+            onChange={(event) => setForm((current) => ({ ...current, desc: event.target.value }))}
+            placeholder="When this email is sent"
+          />
+        </label>
+        <label>
+          Subject
+          <input
+            value={form.subject}
+            onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))}
+            required
+          />
+        </label>
+        <label>
+          Message
+          <textarea
+            rows="14"
+            value={form.body}
+            onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))}
+            placeholder="Write the email. HTML is supported."
+            required
+          />
+        </label>
+        <section className="message-preview" aria-live="polite">
+          <div className="message-preview-label">Preview</div>
+          {fullDocumentPreview ? (
+            <div className="email-frame email-frame-full">
+              <iframe title="Template preview" className="email-frame-doc" sandbox="" srcDoc={previewHtml(previewBody)} />
+            </div>
+          ) : (
+            <div className="email-frame">
+              <div className="email-frame-bar">
+                <img src="/logo.png" alt="" />
+                Chime
+              </div>
+              <div className="email-frame-body">
+                <h3>{applyEmailMerge(form.subject, previewMerge) || 'Subject'}</h3>
+                <div className="email-frame-copy" dangerouslySetInnerHTML={{ __html: previewHtml(previewBody) }} />
+              </div>
+            </div>
+          )}
+        </section>
+        {error && <p className="login-error">{error}</p>}
+        <div className="kyc-modal-actions">
+          {original && (
+            <button className="ghost-btn template-restore" type="button" onClick={restoreOriginal} disabled={saving}>
+              Restore original
+            </button>
+          )}
+          <button className="ghost-btn" type="button" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button className="dash-primary" type="submit" disabled={saving}>
+            {saving ? 'Saving...' : 'Save template'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function AdminNotifications() {
   const { admin } = useAuth()
   const { conversations } = useChat()
   const { cases } = useKyc()
   const { users: directory } = useUsers()
-  const { emails, templates, sendToUsers, retryDelivery, loading, error: loadError, usingSupabase } = useNotifications()
+  const { emails, templates, sendToUsers, retryDelivery, upsertTemplate, loading, error: loadError, usingSupabase } = useNotifications()
   const [params] = useSearchParams()
   const presetEmail = String(params.get('email') || '').trim().toLowerCase()
 
@@ -151,6 +250,9 @@ export default function AdminNotifications() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [updatedAt, setUpdatedAt] = useState(() => new Date())
+  const [templateForm, setTemplateForm] = useState(null)
+  const [templateError, setTemplateError] = useState('')
+  const [savingTemplate, setSavingTemplate] = useState(false)
 
   const users = useMemo(() => {
     const list = [
@@ -188,6 +290,8 @@ export default function AdminNotifications() {
     [emails],
   )
 
+  const composeTemplates = useMemo(() => mergeEmailTemplates(templates), [templates])
+
   useEffect(() => {
     if (!presetEmail) return
     const match = users.find((item) => item.email.toLowerCase() === presetEmail)
@@ -221,28 +325,127 @@ export default function AdminNotifications() {
     return list[0] || { name: admin?.name || 'there', email: admin?.email || '' }
   }, [audience, admins, selected, users, admin])
 
-  const previewSubject = applyEmailMerge(subject, { ...mergeFields, name: previewRecipient.name })
-  const previewBody = applyEmailMerge(body, { ...mergeFields, name: previewRecipient.name })
+  const previewMerge = {
+    ...mergeFields,
+    name: previewRecipient.name,
+    link_url: normalizeHttpUrl(mergeFields.link_url),
+  }
+  const previewSubject = applyEmailMerge(subject, previewMerge)
+  const previewBody = applyEmailMerge(attachEmailLink(body, previewMerge), previewMerge)
   const activeMergeFields = usedMergeFields(`${subject}\n${body}`)
   const fullDocumentPreview = isFullEmailDocument(body)
 
   function applyTemplate(id) {
     setTemplateId(id)
     if (!id) return
-    const template = templates.find((item) => item.id === id)
+    const template = composeTemplates.find((item) => item.id === id)
     if (!template) return
     setSubject(template.subject || '')
     setBody(template.body || '')
-    setMergeFields(defaultMergeValues(template.defaults || {}))
+    setMergeFields((current) =>
+      defaultMergeValues({
+        ...(template.defaults || {}),
+        link_url: current.link_url || template.defaults?.link_url,
+        link_label: current.link_label || template.defaults?.link_label,
+      }),
+    )
+  }
+
+  function openTemplateEditor(template) {
+    setTemplateError('')
+    setTemplateForm({
+      id: template.id,
+      name: template.name || '',
+      desc: template.desc || '',
+      subject: template.subject || '',
+      snippet: template.snippet || '',
+      body: template.body || '',
+      cta: template.cta || '',
+      icon: template.icon || 'mail',
+      tone: template.tone || 'green',
+      status: template.status || 'active',
+      defaults: template.defaults,
+    })
+  }
+
+  async function persistTemplate(next) {
+    setSavingTemplate(true)
+    const result = await upsertTemplate(next)
+    setSavingTemplate(false)
+    if (!result.ok) return result
+    if (templateId && result.template?.id === templateId) {
+      setSubject(result.template.subject || '')
+      setBody(result.template.body || '')
+    }
+    return result
+  }
+
+  async function handleSaveComposeTemplate() {
+    setError('')
+    setNotice('')
+    if (!templateId) {
+      setError('Choose a template to save.')
+      return
+    }
+    const current = composeTemplates.find((item) => item.id === templateId)
+    if (!current) {
+      setError('Choose a template to save.')
+      return
+    }
+    if (!subject.trim() || !body.trim()) {
+      setError('Add a subject and message before saving the template.')
+      return
+    }
+    const result = await persistTemplate({
+      ...current,
+      subject,
+      body,
+      snippet: current.snippet || subject,
+    })
+    if (!result.ok) {
+      setError(result.error || 'Could not save that template.')
+      return
+    }
+    setNotice(`Saved ${current.name}.`)
+  }
+
+  async function handleSaveTemplateEditor(event) {
+    event.preventDefault()
+    setTemplateError('')
+    if (!templateForm?.name?.trim() || !templateForm?.subject?.trim() || !String(templateForm.body || '').trim()) {
+      setTemplateError('Enter a name, subject, and message.')
+      return
+    }
+    const result = await persistTemplate({
+      ...templateForm,
+      snippet: templateForm.snippet || templateForm.subject,
+    })
+    if (!result.ok) {
+      setTemplateError(result.error || 'Could not save that template.')
+      return
+    }
+    setTemplateForm(null)
+    setNotice(`Saved ${result.template.name}.`)
+  }
+
+  function composedMerge() {
+    const link_url = normalizeHttpUrl(mergeFields.link_url)
+    return {
+      ...mergeFields,
+      link_url,
+      app_url: link_url || mergeFields.app_url,
+      support_url: link_url || mergeFields.support_url,
+    }
   }
 
   async function deliver(list, { toAll, nextSubject = subject, nextBody = body } = {}) {
+    const merge = composedMerge()
     return sendToUsers({
       recipients: list,
       toAll,
       subject: nextSubject,
-      body: nextBody,
-      merge: mergeFields,
+      body: attachEmailLink(nextBody, merge),
+      merge,
     })
   }
 
@@ -256,6 +459,10 @@ export default function AdminNotifications() {
     }
     if (!subject.trim() || !body.trim()) {
       setError('Add a subject and message.')
+      return
+    }
+    if (String(mergeFields.link_url || '').trim() && !normalizeHttpUrl(mergeFields.link_url)) {
+      setError('Enter a valid http(s) link.')
       return
     }
     const list = resolveRecipients()
@@ -310,13 +517,42 @@ export default function AdminNotifications() {
           <h2>Compose Email</h2>
           <label>
             Template
+            <div className="template-picks">
+              {FEATURED_TEMPLATE_IDS.map((id) => {
+                const template = composeTemplates.find((item) => item.id === id)
+                if (!template) return null
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`template-pick${templateId === id ? ' is-active' : ''}`}
+                    onClick={() => applyTemplate(id)}
+                  >
+                    {template.name}
+                  </button>
+                )
+              })}
+            </div>
             <select value={templateId} onChange={(event) => applyTemplate(event.target.value)}>
               <option value="">Blank message</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
+              <optgroup label="Branded emails">
+                {composeTemplates
+                  .filter((template) => FEATURED_TEMPLATE_IDS.includes(template.id))
+                  .map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Other templates">
+                {composeTemplates
+                  .filter((template) => !FEATURED_TEMPLATE_IDS.includes(template.id))
+                  .map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+              </optgroup>
             </select>
           </label>
           <label>
@@ -327,6 +563,30 @@ export default function AdminNotifications() {
               placeholder="Enter email subject"
             />
           </label>
+          <div className="email-link-fields">
+            <label>
+              Link URL
+              <input
+                type="url"
+                value={mergeFields.link_url || ''}
+                onChange={(event) =>
+                  setMergeFields((current) => ({ ...current, link_url: event.target.value }))
+                }
+                placeholder="https://example.com/page"
+              />
+            </label>
+            <label>
+              Link text
+              <input
+                value={mergeFields.link_label || ''}
+                onChange={(event) =>
+                  setMergeFields((current) => ({ ...current, link_label: event.target.value }))
+                }
+                placeholder="Open link"
+              />
+            </label>
+            <small>Recipients can tap this button in the email to open the page.</small>
+          </div>
           {activeMergeFields.length > 0 && (
             <div className="merge-fields">
               {activeMergeFields.map((field) => (
@@ -353,8 +613,16 @@ export default function AdminNotifications() {
               <SendIcon />
               {sending ? 'Sending...' : 'Send Email'}
             </button>
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={handleSaveComposeTemplate}
+              disabled={savingTemplate || !templateId}
+            >
+              {savingTemplate ? 'Saving...' : 'Save template'}
+            </button>
           </div>
-          <details className="html-source" open={!fullDocumentPreview}>
+          <details className="html-source" open>
             <summary>Message {fullDocumentPreview ? 'HTML' : '(HTML supported)'}</summary>
             <label>
               <textarea
@@ -450,6 +718,60 @@ export default function AdminNotifications() {
         </aside>
       </form>
 
+      <section className="dash-card">
+        <div className="card-head">
+          <div>
+            <h2>Templates</h2>
+            <p>Click a row to use it, or Edit to change the saved message.</p>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th>Template</th>
+                <th>Subject</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {composeTemplates.map((template) => (
+                <tr
+                  key={template.id}
+                  className={templateId === template.id ? 'selected' : ''}
+                  onClick={() => applyTemplate(template.id)}
+                >
+                  <td>
+                    <strong>{template.name}</strong>
+                    <small>{template.desc || template.snippet}</small>
+                  </td>
+                  <td>{template.subject}</td>
+                  <td>
+                    <span className={`status-badge ${template.status || 'active'}`}>
+                      <i />
+                      {template.status || 'active'}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openTemplateEditor(template)
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="dash-card delivery-history">
         <div className="card-head">
           <div>
@@ -518,6 +840,16 @@ export default function AdminNotifications() {
           </table>
         </div>
       </section>
+      {templateForm && (
+        <TemplateEditor
+          form={templateForm}
+          setForm={setTemplateForm}
+          error={templateError}
+          saving={savingTemplate}
+          onCancel={() => setTemplateForm(null)}
+          onSubmit={handleSaveTemplateEditor}
+        />
+      )}
     </AdminLayout>
   )
 }

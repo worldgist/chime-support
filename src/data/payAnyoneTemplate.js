@@ -145,7 +145,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
       </p>
       <p class="text">You can view details about this transaction in the Chime app.</p>
       <div class="cta-wrap">
-        <a class="cta" href="{{app_url}}">View in Chime app</a>
+        <a class="cta" href="{{app_url}}" target="_blank" rel="noopener noreferrer">{{link_label}}</a>
       </div>
       <p class="did-you-know">
         Did you know you can pay people who don't have a Chime account? Here's how it works:

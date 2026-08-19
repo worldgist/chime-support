@@ -1117,6 +1117,51 @@ select.status-badge {
   font-weight: 700;
 }
 
+.template-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-pick {
+  border: 1px solid var(--dash-border);
+  background: #fff;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.template-pick.is-active {
+  border-color: #1ec677;
+  background: #e8f8f2;
+  color: #06281d;
+}
+
+.template-editor-card {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+.template-editor-card textarea {
+  min-height: 240px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.template-editor-card .email-frame-full,
+.template-editor-card .email-frame {
+  max-height: 280px;
+}
+
+.template-restore {
+  margin-right: auto;
+}
+
 .delivery-compose input,
 .delivery-compose textarea,
 .delivery-compose select,
@@ -1154,6 +1199,16 @@ select.status-badge {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.email-link-fields {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr;
+  gap: 10px;
+}
+
+.email-link-fields small {
+  grid-column: 1 / -1;
 }
 
 .message-preview {
@@ -1371,7 +1426,8 @@ select.status-badge {
     border-bottom: 1px solid var(--dash-border);
   }
 
-  .merge-fields {
+  .merge-fields,
+  .email-link-fields {
     grid-template-columns: 1fr;
   }
 

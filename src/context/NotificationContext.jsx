@@ -14,6 +14,7 @@ import {
   fetchCustomerEmails,
   fetchEmailSettings,
   fetchEmailTemplates,
+  ensureCatalogTemplates,
   insertEmailNotification,
   markAdminEmailsRead,
   markCustomerEmailRead,
@@ -81,10 +82,15 @@ export function NotificationProvider({ children }) {
   const [loading, setLoading] = useState(usingSupabase)
   const [error, setError] = useState('')
   const skipSave = useRef(true)
+  const catalogSynced = useRef(false)
   const emailsRef = useRef(emails)
   const settingsRef = useRef(settings)
   emailsRef.current = emails
   settingsRef.current = settings
+
+  useEffect(() => {
+    setTemplates((current) => mergeEmailTemplates(current))
+  }, [CATALOG_TEMPLATES])
 
   async function refreshAdminInbox() {
     if (!supabase) return
@@ -98,8 +104,14 @@ export function NotificationProvider({ children }) {
       fetchEmailTemplates(),
       fetchEmailSettings(),
     ])
+    let syncedTemplates = nextTemplates
+    if (!catalogSynced.current) {
+      const ensured = await ensureCatalogTemplates(nextTemplates)
+      syncedTemplates = ensured.templates
+      catalogSynced.current = ensured.synced
+    }
     setEmails(withoutChatNotifications(nextEmails))
-    setTemplates(mergeEmailTemplates(nextTemplates))
+    setTemplates(mergeEmailTemplates(syncedTemplates))
     if (nextSettings) setSettings((current) => ({ ...current, ...nextSettings }))
     setError('')
     setLoading(false)

@@ -142,7 +142,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
         from {{brand_name}}
         <br>
         Questions? We're here to
-        <a href="{{support_url}}" class="support-link">help</a>.
+        <a href="{{support_url}}" class="support-link" target="_blank" rel="noopener noreferrer">help</a>.
       </p>
     </div>
     <div class="footer">

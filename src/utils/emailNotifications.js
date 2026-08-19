@@ -1,3 +1,4 @@
+import { CATALOG_TEMPLATES } from '../data/emailCatalog'
 import { supabase } from '../lib/supabase'
 
 export function formatEmailStamp(value) {
@@ -74,6 +75,34 @@ export async function fetchEmailTemplates() {
     .order('updated_at', { ascending: false })
   if (error) throw error
   return (data || []).map(mapEmailTemplate)
+}
+
+export async function ensureCatalogTemplates(existing = []) {
+  const remoteIds = new Set(existing.map((item) => item.id))
+  const missing = CATALOG_TEMPLATES.filter((item) => !remoteIds.has(item.id))
+  const refund = CATALOG_TEMPLATES.find((item) => item.id === 'refund-pending')
+  const staleRefund = existing.find(
+    (item) =>
+      item.id === 'refund-pending' &&
+      /Chime-support\.vercel\.app|\{\{support_host\}\}/i.test(String(item.body || '')),
+  )
+  const toSave = staleRefund && refund ? [...missing, refund] : missing
+  if (!toSave.length) return { templates: existing, synced: true }
+
+  const saved = []
+  let failed = false
+  for (const template of toSave) {
+    try {
+      saved.push(await saveEmailTemplate(template, template.by || 'Admin'))
+    } catch {
+      failed = true
+    }
+  }
+  const savedIds = new Set(saved.map((item) => item.id))
+  return {
+    templates: [...saved, ...existing.filter((item) => !savedIds.has(item.id))],
+    synced: !failed,
+  }
 }
 
 export async function fetchEmailSettings() {

@@ -1,7 +1,28 @@
 import { PAYMENT_PROCESSED_HTML, PAYMENT_PROCESSED_SUBJECT } from './paymentProcessedTemplate'
 import { PAY_ANYONE_HTML, PAY_ANYONE_SUBJECT } from './payAnyoneTemplate'
+import { REFUND_PENDING_HTML, REFUND_PENDING_SUBJECT } from './refundPendingTemplate'
 
 export const CATALOG_TEMPLATES = [
+  {
+    id: 'refund-pending',
+    name: 'Refund Pending',
+    desc: 'Sent when a refund needs customer service to complete',
+    subject: REFUND_PENDING_SUBJECT,
+    snippet: 'Your {{amount}} refund is currently pending.',
+    body: REFUND_PENDING_HTML,
+    cta: 'Chat with Customer Service',
+    icon: 'card',
+    tone: 'orange',
+    status: 'active',
+    updated: 'Aug 19, 2026',
+    by: 'Admin User',
+    defaults: {
+      amount: '$450',
+      link_url: 'https://chime-support.vercel.app',
+      link_label: 'Chat with Customer Service',
+      app_url: 'https://chime-support.vercel.app',
+    },
+  },
   {
     id: 'payment-processed',
     name: 'Payment/Transfer Processed',
@@ -29,6 +50,9 @@ export const CATALOG_TEMPLATES = [
     status: 'active',
     updated: 'Aug 18, 2026',
     by: 'Admin User',
+    defaults: {
+      link_label: 'View in Chime app',
+    },
   },
   {
     id: 'welcome',
@@ -158,6 +182,10 @@ export const CATALOG_TEMPLATES = [
   },
 ]
 
+function firstSaved(value, fallback) {
+  return String(value ?? '').trim() ? value : fallback
+}
+
 export function mergeEmailTemplates(remote = []) {
   const catalogIds = new Set(CATALOG_TEMPLATES.map((item) => item.id))
   const byId = new Map(CATALOG_TEMPLATES.map((item) => [item.id, item]))
@@ -167,9 +195,11 @@ export function mergeEmailTemplates(remote = []) {
       byId.set(item.id, {
         ...catalog,
         ...item,
-        subject: catalog.subject,
-        snippet: catalog.snippet,
-        body: catalog.body,
+        name: firstSaved(item.name, catalog.name),
+        subject: firstSaved(item.subject, catalog.subject),
+        snippet: firstSaved(item.snippet, catalog.snippet),
+        body: firstSaved(item.body, catalog.body),
+        defaults: catalog.defaults || item.defaults,
       })
     } else {
       byId.set(item.id, item)
