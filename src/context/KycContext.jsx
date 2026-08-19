@@ -343,7 +343,7 @@ export function KycProvider({ children }) {
       recipients: [{ name: item.name, email: item.email }],
       subject: 'Verify your Chime account',
       body: `Hi ${item.name},\n\nUse this secure link to verify your identity:\n${url}\n\nYou will need:\n• ID card, front and back\n• Your Social Security number\n• A live selfie from your camera\n\nThis link expires in 7 days.\n\nThank you,\nChime Support`,
-      fromName: 'Chime KYC',
+      fromName: 'Chime',
     })
   }
 

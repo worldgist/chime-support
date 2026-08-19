@@ -132,7 +132,7 @@ export default function AdminDashboard() {
               </div>
               <p className="live-hint">
                 {usingSupabase || activeId === LIVE_CHAT_ID
-                  ? 'Live customer chat — replies appear in their account support window.'
+                  ? 'Realtime chat — new messages appear as they are sent.'
                   : 'Open /chat to talk with this customer.'}
               </p>
               <ChatThread
@@ -143,7 +143,7 @@ export default function AdminDashboard() {
                 customerName={customer.name}
               />
               <ChatInput
-                placeholder="Reply as Chime Support..."
+                placeholder="Reply as Chime..."
                 quickReplies={AGENT_REPLIES}
                 onTyping={setAgentTyping}
                 onSend={(payload) => sendAdminReply(activeId, payload)}

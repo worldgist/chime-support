@@ -68,7 +68,7 @@ function toHtml(subject, body) {
           <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
             <tr>
               <td style="background:#1ec677;padding:18px 24px;color:#fff;font-weight:800;font-size:18px;">
-                Chime Support
+                Chime
               </td>
             </tr>
             <tr>
@@ -79,7 +79,7 @@ function toHtml(subject, body) {
             </tr>
             <tr>
               <td style="padding:0 24px 24px;color:#6b7c72;font-size:12px;">
-                This message was sent by Chime Support.
+                This message was sent by Chime.
               </td>
             </tr>
           </table>
@@ -110,7 +110,12 @@ function uniqueEmails(list) {
   return [...new Set((list || []).map((item) => String(item || '').trim().toLowerCase()).filter(isDeliverableEmail))]
 }
 
-const DEFAULT_FROM = 'Chime Support <info@vasawealthearn.com>'
+const DEFAULT_FROM = 'Chime <support@chaincola.com>'
+
+function senderFrom(value) {
+  const raw = String(value || DEFAULT_FROM).trim() || DEFAULT_FROM
+  return raw.replace(/^Chime Support\s*</i, 'Chime <')
+}
 
 function serviceRoleKey() {
   const legacy = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -129,7 +134,7 @@ Deno.serve(async (req) => {
   }
 
   const resendKey = Deno.env.get('RESEND_API_KEY')
-  const from = Deno.env.get('RESEND_FROM_EMAIL') || DEFAULT_FROM
+  const from = senderFrom(Deno.env.get('RESEND_FROM_EMAIL'))
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = serviceRoleKey()
 
@@ -200,8 +205,8 @@ Deno.serve(async (req) => {
       user_name: name || 'there',
       brand_name: 'Chime',
       company_name: 'Chime',
-      support_url: 'https://vasawealthearn.com',
-      app_url: 'https://vasawealthearn.com',
+      support_url: 'https://chaincola.com',
+      app_url: 'https://chaincola.com',
       year: String(new Date().getFullYear()),
     }
   }

@@ -15,6 +15,8 @@ import {
   createSupportTicket,
   fetchAdminTickets,
   fetchCustomerThread,
+  mapMessage,
+  mapTicket,
   markTicketRead,
   sendAdminMessage,
   sendCustomerMessage,
@@ -215,11 +217,45 @@ function upsertConversation(list, thread) {
   return list.map((item) => (item.id === thread.id ? mergeThread(item, thread) : item))
 }
 
+function isOptimisticId(id) {
+  return /^\d{10,}$/.test(String(id || ''))
+}
+
+function mergeMessages(existing = [], incoming = []) {
+  const byId = new Map()
+  for (const item of existing) byId.set(String(item.id), item)
+  for (const item of incoming || []) {
+    if (isOptimisticId(item.id)) continue
+    for (const [key, value] of [...byId.entries()]) {
+      if (isOptimisticId(key) && value.from === item.from && value.text === item.text) {
+        byId.delete(key)
+      }
+    }
+    byId.set(String(item.id), item)
+  }
+
+  const seen = new Set()
+  const merged = []
+  for (const item of existing) {
+    const current = byId.get(String(item.id))
+    if (!current || seen.has(String(current.id))) continue
+    seen.add(String(current.id))
+    merged.push(current)
+  }
+  for (const item of incoming || []) {
+    if (seen.has(String(item.id))) continue
+    seen.add(String(item.id))
+    merged.push(item)
+  }
+  return merged
+}
+
 function mergeThread(existing, incoming) {
-  const incomingCount = incoming.messages?.length || 0
-  const existingCount = existing.messages?.length || 0
-  if (incomingCount >= existingCount) return { ...existing, ...incoming }
-  return { ...existing, ...incoming, messages: existing.messages }
+  return {
+    ...existing,
+    ...incoming,
+    messages: mergeMessages(existing.messages, incoming.messages),
+  }
 }
 
 function mergeIncomingTickets(current, incoming, visitorTicketId) {
@@ -235,7 +271,7 @@ function mergeIncomingTickets(current, incoming, visitorTicketId) {
   return extras.length ? [...merged, ...extras] : merged
 }
 
-function appendMessage(list, ticketId, message, customer) {
+function appendMessage(list, ticketId, message, customer, viewingId) {
   const existing = list.find((item) => item.id === ticketId)
   if (!existing) {
     return [
@@ -249,18 +285,33 @@ function appendMessage(list, ticketId, message, customer) {
           memberSince: String(new Date().getFullYear()),
         },
         status: 'open',
-        unread: 1,
+        unread: message.from === 'user' && ticketId !== viewingId ? 1 : 0,
         messages: [message],
       },
       ...list,
     ]
   }
-  if (existing.messages.some((item) => String(item.id) === String(message.id))) return list
-  return patchConversation(list, ticketId, (conversation) => ({
-    status: conversation.status === 'resolved' ? 'open' : conversation.status,
-    unread: 1,
-    messages: [...conversation.messages, message],
+  const messages = mergeMessages(existing.messages, [message])
+  const already = existing.messages.some((item) => String(item.id) === String(message.id))
+  const unreadBump = !already && message.from === 'user' && ticketId !== viewingId ? 1 : 0
+  const next = patchConversation(list, ticketId, (conversation) => ({
+    status: conversation.status === 'resolved' && message.from === 'user' ? 'open' : conversation.status,
+    unread: unreadBump ? conversation.unread + unreadBump : conversation.unread,
+    messages,
   }))
+  return moveTicketFirst(next, ticketId)
+}
+
+function moveTicketFirst(list, ticketId) {
+  const index = list.findIndex((item) => item.id === ticketId)
+  if (index <= 0) return list
+  const next = [...list]
+  const [item] = next.splice(index, 1)
+  return [item, ...next]
+}
+
+function ticketChannelName(ticketId) {
+  return `ticket-chat:${ticketId}`
 }
 
 export function ChatProvider({ children }) {
@@ -283,6 +334,7 @@ export function ChatProvider({ children }) {
   const visitorRef = useRef(visitor)
   const usingSupabaseRef = useRef(usingSupabase)
   const adminFetchRef = useRef(0)
+  const ticketChannelsRef = useRef(new Map())
   activeIdRef.current = activeId
   agentOnlineRef.current = agentOnline
   visitorRef.current = visitor
@@ -350,7 +402,9 @@ export function ChatProvider({ children }) {
         setActiveId((id) => id || data.thread.id)
       }
       if (data.type === 'ticket-message' && data.ticketId && data.message) {
-        setConversations((current) => appendMessage(current, data.ticketId, data.message, data.customer))
+        setConversations((current) =>
+          appendMessage(current, data.ticketId, data.message, data.customer, activeIdRef.current),
+        )
       }
       if (data.type === 'ticket-status' && data.id) {
         setConversations((current) => {
@@ -402,35 +456,127 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     if (!supabase) return undefined
     let cancelled = false
+    let realtime = null
+    let poll = null
 
-    async function load() {
+    function stop() {
+      if (poll) window.clearInterval(poll)
+      if (realtime) supabase.removeChannel(realtime)
+      poll = null
+      realtime = null
+    }
+
+    function applyMessageRow(row) {
+      if (!row?.ticket_id) return
+      const message = mapMessage(row)
+      setConversations((current) =>
+        appendMessage(current, row.ticket_id, message, undefined, activeIdRef.current),
+      )
+    }
+
+    function applyTicketRow(row, eventType) {
+      if (!row?.id) return
+      setConversations((current) => {
+        const exists = current.some((item) => item.id === row.id)
+        if (!exists) {
+          if (eventType === 'DELETE') return current
+          return [mapTicket(row, []), ...current]
+        }
+        if (eventType === 'DELETE') return current.filter((item) => item.id !== row.id)
+        return patchConversation(current, row.id, (conversation) => ({
+          status: row.status || conversation.status,
+          unread: typeof row.unread === 'number' ? row.unread : conversation.unread,
+          customer: {
+            ...conversation.customer,
+            name: row.customer_name || conversation.customer.name,
+            email: row.customer_email || conversation.customer.email,
+            phone: row.customer_phone || conversation.customer.phone,
+            topic: row.topic || conversation.customer.topic,
+          },
+        }))
+      })
+    }
+
+    async function start() {
+      stop()
+      const { data } = await supabase.auth.getSession()
+      if (cancelled || !data.session) return
       try {
         await refreshAdminTickets()
       } catch {
         // Tables or session may not be ready yet.
       }
+      if (cancelled) return
+
+      realtime = supabase
+        .channel('support-ticket-chat')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_ticket_messages' }, (payload) => {
+          applyMessageRow(payload.new)
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, (payload) => {
+          applyTicketRow(payload.new || payload.old, payload.eventType)
+        })
+        .subscribe()
+
+      poll = window.setInterval(() => {
+        refreshAdminTickets().catch(() => {})
+      }, 15000)
     }
 
-    load()
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (cancelled) return
-      if (session) load()
+    start()
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled || event === 'TOKEN_REFRESHED') return
+      if (session) start()
+      else stop()
     })
 
-    const realtime = supabase
-      .channel('support-ticket-chat')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_ticket_messages' }, load)
-      .subscribe()
-
-    const poll = window.setInterval(load, 4000)
     return () => {
       cancelled = true
-      window.clearInterval(poll)
-      supabase.removeChannel(realtime)
+      stop()
       data.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!supabase) return undefined
+    const ids = new Set()
+    if (visitor?.ticketId) ids.add(visitor.ticketId)
+    if (activeId && activeId !== LIVE_CHAT_ID) ids.add(activeId)
+
+    const channels = new Map()
+    for (const ticketId of ids) {
+      const channel = supabase
+        .channel(ticketChannelName(ticketId), { config: { broadcast: { self: false } } })
+        .on('broadcast', { event: 'message' }, ({ payload }) => {
+          if (!payload?.ticketId || !payload?.message) return
+          setConversations((current) =>
+            appendMessage(current, payload.ticketId, payload.message, payload.customer, activeIdRef.current),
+          )
+        })
+        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+          if (!payload || payload.ticketId !== ticketId) return
+          if (payload.role === 'user') setUserTypingState(Boolean(payload.value))
+          if (payload.role === 'agent') setAgentTypingState(Boolean(payload.value))
+        })
+        .on('broadcast', { event: 'status' }, ({ payload }) => {
+          if (!payload?.id) return
+          setConversations((current) => {
+            if (!current.some((item) => item.id === payload.id)) return current
+            return patchConversation(current, payload.id, (conversation) => ({
+              status: payload.status || conversation.status,
+            }))
+          })
+        })
+        .subscribe()
+      channels.set(ticketId, channel)
+    }
+    ticketChannelsRef.current = channels
+
+    return () => {
+      for (const channel of channels.values()) supabase.removeChannel(channel)
+      if (ticketChannelsRef.current === channels) ticketChannelsRef.current = new Map()
+    }
+  }, [visitor?.ticketId, activeId])
 
   useEffect(() => {
     if (!supabase || !visitor?.ticketId || !visitor?.ticketToken) return undefined
@@ -445,12 +591,22 @@ export function ChatProvider({ children }) {
     }
 
     load()
-    const poll = window.setInterval(load, 2500)
+    const poll = window.setInterval(load, 8000)
     return () => {
       cancelled = true
       window.clearInterval(poll)
     }
   }, [visitor?.ticketId, visitor?.ticketToken])
+
+  function broadcastTicket(ticketId, event, payload) {
+    if (!ticketId || ticketId === LIVE_CHAT_ID) return
+    const channel = ticketChannelsRef.current.get(ticketId)
+    channel?.send({
+      type: 'broadcast',
+      event,
+      payload,
+    })
+  }
 
   async function startLiveChat(details) {
     const profile = {
@@ -583,7 +739,14 @@ export function ChatProvider({ children }) {
           message: saved,
           customer: profile,
         })
-        await refreshCustomerThread()
+        broadcastTicket(ticketId, 'message', {
+          ticketId,
+          message: saved,
+          customer: profile,
+        })
+        setConversations((current) =>
+          appendMessage(current, ticketId, saved, profile, activeIdRef.current),
+        )
       } catch (sendError) {
         setConversations((current) =>
           patchConversation(current, ticketId, (conversation) => ({
@@ -657,10 +820,26 @@ export function ChatProvider({ children }) {
 
     if (supabase && conversationId && conversationId !== LIVE_CHAT_ID) {
       try {
-        await sendAdminMessage(conversationId, { text: trimmed, attachments: stored })
-        await refreshAdminTickets()
-      } catch {
-        // Optimistic message stays until the next poll.
+        const saved = await sendAdminMessage(conversationId, { text: trimmed, attachments: stored })
+        setConversations((current) =>
+          appendMessage(current, conversationId, saved, undefined, conversationId),
+        )
+        broadcastTicket(conversationId, 'message', {
+          ticketId: conversationId,
+          message: saved,
+        })
+        channelRef.current?.postMessage({
+          type: 'ticket-message',
+          ticketId: conversationId,
+          message: saved,
+        })
+      } catch (sendError) {
+        setConversations((current) =>
+          patchConversation(current, conversationId, (conversation) => ({
+            messages: conversation.messages.filter((item) => item.id !== localMessage.id),
+          })),
+        )
+        return { ok: false, error: sendError.message || 'Could not send that message.' }
       }
     }
     return { ok: true }
@@ -669,6 +848,7 @@ export function ChatProvider({ children }) {
   function selectConversation(id) {
     setActiveId(id)
     setAgentTypingState(false)
+    setUserTypingState(false)
     setConversations((current) => patchConversation(current, id, () => ({ unread: 0 })))
     if (supabase && id && id !== LIVE_CHAT_ID) {
       markTicketRead(id).catch(() => {})
@@ -700,6 +880,7 @@ export function ChatProvider({ children }) {
     )
 
     channelRef.current?.postMessage({ type: 'ticket-status', id, status, message: notice })
+    broadcastTicket(id, 'status', { id, status })
 
     if (supabase && id && id !== LIVE_CHAT_ID) {
       try {
@@ -717,11 +898,14 @@ export function ChatProvider({ children }) {
   function setUserTyping(value) {
     setUserTypingState(value)
     channelRef.current?.postMessage({ type: 'typing', role: 'user', value })
+    const ticketId = visitorRef.current?.ticketId
+    broadcastTicket(ticketId, 'typing', { ticketId, role: 'user', value })
   }
 
   function setAgentTyping(value) {
     setAgentTypingState(value)
     channelRef.current?.postMessage({ type: 'typing', role: 'agent', value })
+    broadcastTicket(activeIdRef.current, 'typing', { ticketId: activeIdRef.current, role: 'agent', value })
   }
 
   const activeConversation = conversations.find((item) => item.id === activeId) || live || null

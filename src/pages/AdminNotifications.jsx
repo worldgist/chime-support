@@ -6,7 +6,7 @@ import { useChat } from '../context/ChatContext'
 import { useKyc } from '../context/KycContext'
 import { useUsers } from '../context/UserContext'
 import { useNotifications } from '../context/NotificationContext'
-import { MailIcon, SendIcon } from '../components/icons'
+import { SendIcon } from '../components/icons'
 import { IconSearch } from '../components/adminIcons'
 import { applyEmailMerge, defaultMergeValues, isFullEmailDocument } from '../utils/emailMerge'
 
@@ -147,11 +147,9 @@ export default function AdminNotifications() {
   const [selected, setSelected] = useState([])
   const [query, setQuery] = useState('')
   const [sending, setSending] = useState(false)
-  const [testing, setTesting] = useState(false)
   const [retryingId, setRetryingId] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const [liveUpdates, setLiveUpdates] = useState(true)
   const [updatedAt, setUpdatedAt] = useState(() => new Date())
 
   const users = useMemo(() => {
@@ -200,9 +198,8 @@ export default function AdminNotifications() {
   }, [presetEmail, users])
 
   useEffect(() => {
-    if (!liveUpdates) return undefined
     setUpdatedAt(new Date())
-  }, [emails, liveUpdates])
+  }, [emails])
 
   function toggleUser(user) {
     setAudience('specific')
@@ -250,7 +247,7 @@ export default function AdminNotifications() {
   }
 
   async function handleSend(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
     setError('')
     setNotice('')
     if (!usingSupabase) {
@@ -285,38 +282,6 @@ export default function AdminNotifications() {
     setSelected([])
   }
 
-  async function handleTest() {
-    setError('')
-    setNotice('')
-    if (!usingSupabase) {
-      setError('Supabase is not configured on this deploy, so email cannot be sent.')
-      return
-    }
-    if (!subject.trim() || !body.trim()) {
-      setError('Add a subject and message before sending a test.')
-      return
-    }
-    const testInbox = isRealEmail(admin?.email)
-      ? { name: admin.name, email: admin.email }
-      : null
-    if (!testInbox) {
-      setError('Sign in with a real admin email to send a test.')
-      return
-    }
-    setTesting(true)
-    const sent = await deliver([testInbox], {
-      toAll: false,
-      nextSubject: `[TEST] ${subject.trim()}`,
-      nextBody: body,
-    })
-    setTesting(false)
-    if (!sent || sent.deliveryError) {
-      setError(sent?.deliveryError || 'Could not send the test email.')
-      return
-    }
-    setNotice(`Test email sent to ${testInbox.email}.`)
-  }
-
   async function handleRetry(id) {
     setRetryingId(id)
     const result = await retryDelivery(id)
@@ -333,13 +298,9 @@ export default function AdminNotifications() {
           <span>
             Last updated: {updatedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
           </span>
-          <button
-            type="button"
-            className={`live-toggle${liveUpdates ? ' on' : ''}`}
-            onClick={() => setLiveUpdates((value) => !value)}
-          >
-            <i />
-            Live Updates
+          <button className="dash-primary" type="button" onClick={handleSend} disabled={sending}>
+            <SendIcon />
+            {sending ? 'Sending...' : 'Send Email'}
           </button>
         </div>
       }
@@ -382,19 +343,32 @@ export default function AdminNotifications() {
               ))}
             </div>
           )}
-          <label>
-            Message (HTML supported)
-            <textarea
-              rows="18"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              placeholder="Write your message. You can use HTML tags."
-            />
-            <small>
-              Choose a template or write HTML. Merge tags like <code>{'{{first_name}}'}</code> are filled per
-              recipient.
-            </small>
-          </label>
+          {(error || notice || loadError) && (
+            <p className={error || (loadError && !notice) ? 'login-error' : 'login-copy'}>
+              {notice || error || loadError}
+            </p>
+          )}
+          <div className="delivery-actions">
+            <button className="dash-primary" type="submit" disabled={sending}>
+              <SendIcon />
+              {sending ? 'Sending...' : 'Send Email'}
+            </button>
+          </div>
+          <details className="html-source" open={!fullDocumentPreview}>
+            <summary>Message {fullDocumentPreview ? 'HTML' : '(HTML supported)'}</summary>
+            <label>
+              <textarea
+                rows={fullDocumentPreview ? '8' : '18'}
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                placeholder="Write your message. You can use HTML tags."
+              />
+              <small>
+                Choose a template or write HTML. Merge tags like <code>{'{{first_name}}'}</code> are filled per
+                recipient.
+              </small>
+            </label>
+          </details>
           <section className="message-preview" aria-live="polite">
             <div className="message-preview-label">Message preview</div>
             {fullDocumentPreview ? (
@@ -410,7 +384,7 @@ export default function AdminNotifications() {
               <div className="email-frame">
                 <div className="email-frame-bar">
                   <img src="/logo.png" alt="" />
-                  Chime Support
+                  Chime
                 </div>
                 <div className="email-frame-body">
                   <h3>{previewSubject.trim() || 'Subject'}</h3>
@@ -422,21 +396,6 @@ export default function AdminNotifications() {
               </div>
             )}
           </section>
-          {(error || notice || loadError) && (
-            <p className={error || (loadError && !notice) ? 'login-error' : 'login-copy'}>
-              {notice || error || loadError}
-            </p>
-          )}
-          <div className="delivery-actions">
-            <button className="dash-primary" type="submit" disabled={sending}>
-              <SendIcon />
-              {sending ? 'Sending...' : 'Send Email'}
-            </button>
-            <button className="test-btn" type="button" onClick={handleTest} disabled={testing}>
-              <MailIcon />
-              {testing ? 'Sending test...' : 'Test'}
-            </button>
-          </div>
         </div>
 
         <aside className="delivery-recipients">
@@ -497,10 +456,6 @@ export default function AdminNotifications() {
             <h2>Email History</h2>
             <p>Recently sent emails with delivery status</p>
           </div>
-          <span className={`live-pill${liveUpdates ? ' on' : ''}`}>
-            <i />
-            Live
-          </span>
         </div>
         <div className="table-scroll">
           <table className="dash-table">

@@ -29,11 +29,6 @@ export const CATALOG_TEMPLATES = [
     status: 'active',
     updated: 'Aug 18, 2026',
     by: 'Admin User',
-    defaults: {
-      amount: '$400.00',
-      memo: 'Legal Service',
-      payee_name: 'Wesley H.',
-    },
   },
   {
     id: 'welcome',
@@ -167,7 +162,18 @@ export function mergeEmailTemplates(remote = []) {
   const catalogIds = new Set(CATALOG_TEMPLATES.map((item) => item.id))
   const byId = new Map(CATALOG_TEMPLATES.map((item) => [item.id, item]))
   for (const item of remote) {
-    byId.set(item.id, { ...(byId.get(item.id) || {}), ...item })
+    const catalog = byId.get(item.id)
+    if (catalog) {
+      byId.set(item.id, {
+        ...catalog,
+        ...item,
+        subject: catalog.subject,
+        snippet: catalog.snippet,
+        body: catalog.body,
+      })
+    } else {
+      byId.set(item.id, item)
+    }
   }
   return [
     ...CATALOG_TEMPLATES.map((item) => byId.get(item.id)),

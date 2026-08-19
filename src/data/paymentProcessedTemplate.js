@@ -29,7 +29,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
     }
     .brand {
       font-size: 45px;
-      font-weight: 800;
+      font-weight: 600;
       color: #20c878;
       letter-spacing: -3px;
       line-height: 1;
@@ -40,7 +40,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
       font-size: 58px;
       line-height: 1.04;
       letter-spacing: -2.5px;
-      font-weight: 800;
+      font-weight: 600;
       color: #06281d;
     }
     .text {
@@ -50,12 +50,12 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
       color: #102f25;
       font-weight: 400;
     }
-    .amount, .merchant, .balance { font-weight: 500; }
+    .amount, .merchant, .balance { font-weight: 400; }
     .support-section { margin-top: 105px; }
     .support-link {
       color: #102f25;
       text-decoration: underline;
-      font-weight: 700;
+      font-weight: 500;
     }
     .heart {
       color: #24c978;
@@ -70,7 +70,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
     .footer-brand {
       color: #ffffff;
       font-size: 45px;
-      font-weight: 800;
+      font-weight: 600;
       letter-spacing: -3px;
       margin-bottom: 28px;
     }
@@ -80,7 +80,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
       gap: 28px;
       margin-bottom: 34px;
       font-size: 24px;
-      font-weight: 700;
+      font-weight: 500;
     }
     .footer-text {
       margin: 0 0 30px;
@@ -91,7 +91,7 @@ export const PAYMENT_PROCESSED_HTML = `<!DOCTYPE html>
     .footer-link {
       color: #d6f3df;
       text-decoration: underline;
-      font-weight: 700;
+      font-weight: 500;
     }
     @media only screen and (max-width: 600px) {
       .header { margin: 12px; padding: 28px 25px; }

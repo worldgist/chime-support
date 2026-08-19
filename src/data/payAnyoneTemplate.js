@@ -28,7 +28,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
     }
     .brand {
       font-size: 34px;
-      font-weight: 800;
+      font-weight: 600;
       color: #1ec677;
       letter-spacing: -1.8px;
       line-height: 1;
@@ -47,7 +47,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
       border-radius: 999px;
       color: #0b3d2c;
       font-size: 16px;
-      font-weight: 700;
+      font-weight: 500;
     }
     .badge-icon {
       width: 42px;
@@ -59,7 +59,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
       font-size: 42px;
       line-height: 1.1;
       letter-spacing: -1.4px;
-      font-weight: 800;
+      font-weight: 600;
       color: #06281d;
     }
     .text {
@@ -69,7 +69,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
       color: #102f25;
     }
     .emphasis {
-      font-weight: 700;
+      font-weight: 500;
     }
     .cta-wrap {
       margin: 36px 0 42px;
@@ -80,7 +80,7 @@ export const PAY_ANYONE_HTML = `<!DOCTYPE html>
       color: #06281d !important;
       text-decoration: none;
       font-size: 18px;
-      font-weight: 800;
+      font-weight: 600;
       padding: 16px 28px;
       border-radius: 10px;
     }

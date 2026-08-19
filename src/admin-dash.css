@@ -1082,46 +1082,12 @@ select.status-badge {
   font-weight: 600;
 }
 
-.live-toggle,
-.live-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--dash-border);
-  background: #fff;
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-weight: 800;
-  font-size: 12px;
-  color: #667085;
-}
-
-.live-toggle i,
-.live-pill i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #d0d5dd;
-}
-
-.live-toggle.on,
-.live-pill.on {
-  color: #0f8a4b;
-  border-color: #b7ebc9;
-  background: #e9fbf1;
-}
-
-.live-toggle.on i,
-.live-pill.on i {
-  background: #12b76a;
-  box-shadow: 0 0 0 4px rgba(18, 183, 106, 0.16);
-}
-
 .delivery-compose {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
   gap: 0;
-  overflow: hidden;
+  overflow: visible;
+  align-items: start;
 }
 
 .delivery-compose-copy,
@@ -1163,9 +1129,25 @@ select.status-badge {
 }
 
 .delivery-compose textarea {
-  min-height: 280px;
+  min-height: 160px;
   resize: vertical;
   line-height: 1.5;
+}
+
+.html-source {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.html-source summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.html-source[open] textarea {
+  margin-top: 8px;
 }
 
 .merge-fields {
@@ -1246,7 +1228,7 @@ select.status-badge {
 .email-frame-doc {
   display: block;
   width: 100%;
-  height: 720px;
+  height: 420px;
   border: 0;
   background: #f4f6f5;
 }
@@ -1260,22 +1242,17 @@ select.status-badge {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fff;
+  padding: 8px 0 2px;
 }
 
-.delivery-actions .dash-primary,
-.test-btn {
+.delivery-actions .dash-primary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.test-btn {
-  border: 1.5px solid var(--green);
-  color: var(--green);
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 16px;
-  font-weight: 800;
 }
 
 .delivery-recipients {

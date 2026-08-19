@@ -36,72 +36,6 @@ const defaultSettings = {
   kycDecisions: true,
 }
 
-export const EMAIL_TEMPLATES = [
-  {
-    id: 'custom',
-    label: 'Custom message',
-    subject: '',
-    body: '',
-  },
-  {
-    id: 'kyc-ok',
-    label: 'KYC approved',
-    subject: 'Your identity verification is complete',
-    body: 'Hi {name},\n\nYour identity documents were reviewed and approved. You can keep using your Chime account as usual.\n\nThank you,\nChime Support',
-  },
-  {
-    id: 'kyc-more',
-    label: 'KYC needs more info',
-    subject: 'We need another document to finish verification',
-    body: 'Hi {name},\n\nWe could not finish your identity check yet. Please upload a clearer photo ID or a proof of address from the last 90 days.\n\nThank you,\nChime Support',
-  },
-  {
-    id: 'account',
-    label: 'Account update',
-    subject: 'An update on your Chime account',
-    body: 'Hi {name},\n\nWe wanted to let you know there is an update on your Chime account. If you have questions, reply in Chime Support chat — we are here 24/7.\n\nThank you,\nChime Support',
-  },
-]
-
-const seedEmails = [
-  {
-    id: 'mail-2',
-    type: 'kyc',
-    event: 'queue',
-    from: 'Chime KYC <kyc@chimesupport.local>',
-    subject: 'KYC application needs review — Ava Chen',
-    preview: 'Ava Chen submitted identity documents and is waiting for review.',
-    body: 'A new KYC application is pending.\n\nCustomer: Ava Chen\nEmail: ava.chen@email.com\nRisk: low\n\nReview documents in KYC Management.',
-    href: '/admin/kyc',
-    time: 'Today, 8:14 AM',
-    read: false,
-  },
-  {
-    id: 'mail-3',
-    type: 'kyc',
-    event: 'queue',
-    from: 'Chime KYC <kyc@chimesupport.local>',
-    subject: 'KYC flagged for manual review — Marcus Hale',
-    preview: 'Selfie mismatch and expired proof of address.',
-    body: 'A KYC case was moved to manual review.\n\nCustomer: Marcus Hale\nFlags: selfie mismatch, expired address document\n\nOpen KYC Management to decide.',
-    href: '/admin/kyc',
-    time: 'Today, 7:48 AM',
-    read: true,
-  },
-  {
-    id: 'mail-4',
-    type: 'system',
-    from: 'Chime Support <alerts@chimesupport.local>',
-    subject: 'Daily support digest',
-    preview: '3 open chats and 2 KYC items waiting.',
-    body: 'Here is your daily admin digest.\n\n• 3 open customer chats\n• 2 KYC applications waiting\n• Live customer chat is active\n\nThis is a UI preview of admin email notifications.',
-    href: '/admin/notifications',
-    time: 'Yesterday',
-    read: true,
-    direction: 'in',
-  },
-]
-
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key)
@@ -133,8 +67,8 @@ export function NotificationProvider({ children }) {
   const usingSupabase = Boolean(supabase)
   const [emails, setEmails] = useState(() => {
     if (usingSupabase) return []
-    const stored = loadJson(EMAILS_KEY, null)
-    return withoutChatNotifications(Array.isArray(stored) && stored.length ? stored : seedEmails)
+    const stored = loadJson(EMAILS_KEY, [])
+    return withoutChatNotifications(Array.isArray(stored) ? stored : [])
   })
   const [userEmails, setUserEmails] = useState(() => (usingSupabase ? [] : loadJson(USER_EMAILS_KEY, [])))
   const [templates, setTemplates] = useState(CATALOG_TEMPLATES)
@@ -302,7 +236,7 @@ export function NotificationProvider({ children }) {
     const email = {
       id: `mail-${Date.now()}`,
       type: 'system',
-      from: `Chime Support <${FROM_EMAIL}>`,
+      from: `Chime <${FROM_EMAIL}>`,
       to: settingsRef.current.recipient,
       time: stamp(),
       read: false,
@@ -332,7 +266,7 @@ export function NotificationProvider({ children }) {
     return email
   }
 
-  async function sendToUsers({ recipients = [], toAll = false, subject, body, fromName = 'Chime Support', merge = {} }) {
+  async function sendToUsers({ recipients = [], toAll = false, subject, body, fromName = 'Chime', merge = {} }) {
     const keepPersonal = ['first_name', 'user_name']
     const trimmedSubject = applyEmailMerge(String(subject || '').trim(), merge, { keep: keepPersonal })
     const trimmedBody = applyEmailMerge(String(body || '').trim(), merge, { keep: keepPersonal })

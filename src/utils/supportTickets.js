@@ -25,6 +25,7 @@ export function mapMessage(row) {
     from: row.sender === 'support' ? 'support' : 'user',
     text: row.body || '',
     time: formatTime(new Date(row.created_at)),
+    createdAt: row.created_at || null,
     attachments: serializeAttachments(Array.isArray(row.attachments) ? row.attachments : [], {
       allowDataUrl: true,
     }),
